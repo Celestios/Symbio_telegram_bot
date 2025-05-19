@@ -117,4 +117,24 @@ def find_link(text: str) -> str|None:
     return None
 
 
+def encode_label(label: str, label_map) -> str:
+    if label in label_map:
+        return label_map[label]
+    next_id = len(label_map)
+    encoded = f"__enc_{next_id}"
+    label_map[label] = encoded
+    return encoded
 
+
+def decode_label(label: str, label_map) -> str:
+    if not label.startswith("__enc_"):
+        return label
+    for label_n, code in label_map.items():
+        if code == label:
+            return label_n
+    raise ValueError(f"Unknown encoded callback data: {encoded}")
+
+
+def is_persian_wednesday():
+    today = jdatetime.date.today()
+    return today.weekday() == 2  # 0 = Saturday, ..., 2 = Wednesday

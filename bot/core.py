@@ -1,7 +1,7 @@
 #  start of something wonderful!
 import logging
 from telegram.ext import ApplicationBuilder
-from .config import Config
+from .construct import Config
 from .handlers import *
 from .utility import json_read
 
@@ -14,8 +14,7 @@ class TelegramBot:
         self.profiles = None
 
     def load_profiles(self):
-        profiles_data = json_read(Config.database)
-        self.profiles = ProfileManager(profiles_data)
+        self.profiles = ProfileManager(RES.DATABASE)
 
     def register_handlers(self):
         handler = Handlers(self.profiles)
