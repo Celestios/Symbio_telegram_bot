@@ -26,6 +26,8 @@ class RES:
     REQUIRED_FIELDS = _RESOURCE.get("required_fields_check")
     CREDS_FA = _RESOURCE.get("creds_fa")
     LABELS: dict = _RESOURCE.get("buttons")
+    TAGS_MAP: dict = _RESOURCE.get("tags_map")
+    NOTIF_TIME = 11
     LABEL_CALLBACK_MAP = {}
     STEP_FIELDS = list(CREDS_FA.keys())
     MULTI_FIELDS = {"skills", "interests"}

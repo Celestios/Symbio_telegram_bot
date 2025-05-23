@@ -6,7 +6,14 @@ from .utility import (
     log_calls, json_key_update, find_creds,
     find_link, async_json_key_update, json_read, encode_label, decode_label
 )
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    MessageEntity
+)
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -27,6 +34,41 @@ from typing import Any, Dict, List, Optional
 from itertools import islice
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo
+from collections import defaultdict
+
+
+def apply_entities(text: str, entities: list[MessageEntity]) -> str:
+    """
+    Fully supports nested and overlapping Telegram entities.
+    Converts entities to HTML using index-based insertion.
+    """
+    if not entities:
+        return text
+
+    tag_map = RES.TAGS_MAP
+    insertions = defaultdict(list)
+
+    for entity in entities:
+        start = entity.offset
+        end = start + entity.length
+
+        if entity.type == 'text_link':
+            insertions[start].append(f'<a href="{entity.url}">')
+            insertions[end].append('</a>')
+        elif entity.type in tag_map:
+            open_tag, close_tag = tag_map[entity.type][0], tag_map[entity.type][1]
+            insertions[start].append(open_tag)
+            insertions[end].insert(0, close_tag)
+
+    # Build final string
+    result = []
+    for i in range(len(text) + 1):
+        if i in insertions:
+            result.extend(insertions[i])
+        if i < len(text):
+            result.append(text[i])
+
+    return ''.join(result)
 
 
 @dataclass
@@ -200,6 +242,7 @@ class Handlers:
                     MessageHandler(filters.Regex(f"^{labels['21']}$"), self.edit_profile),
                     MessageHandler(filters.Regex(f"^{labels['25']}$"), self.content_creation),
                     MessageHandler(filters.Regex(f"^{labels['2']}$"), self.back_to_main),
+                    MessageHandler(filters.Regex(f"^{labels['30']}$"), self.about),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.unknown_message)
                 ],
                 States.MAIN_MENU_ADMIN: [
@@ -209,6 +252,7 @@ class Handlers:
                     MessageHandler(filters.Regex(f"^{labels['25']}$"), self.content_creation),
                     MessageHandler(filters.Regex(f"^{labels['24']}$"), self.export_profiles),
                     MessageHandler(filters.Regex(f"^{labels['2']}$"), self.back_to_main),
+                    MessageHandler(filters.Regex(f"^{labels['30']}$"), self.about),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.unknown_message)
                 ],
                 States.TEMPLATES: [
@@ -350,11 +394,11 @@ class Handlers:
 
     def weekly_job(self, app):
         job_queue = app.job_queue
-        notification_time = dt_time(hour=21, minute=16, tzinfo=ZoneInfo("Asia/Tehran"))
+        notification_time = dt_time(hour=RES.NOTIF_TIME, minute=0, tzinfo=ZoneInfo("Asia/Tehran"))
         job_queue.run_daily(
             callback=self.weekly_notification,
             time=notification_time,
-            days=(1,),
+            days=(3,),
             name="weekly_notification",
         )
 
@@ -441,8 +485,11 @@ class Handlers:
     def _reply_button(self, label):
         return KeyboardButton(RES.LABELS[label])
 
-    def _reply_buttons(self, buttons_name):
-        buttons_label = RES.LABELS[buttons_name]
+    def _reply_buttons(self, buttons_n):
+        if isinstance(buttons_n, str):
+            buttons_label = RES.LABELS[buttons_n]
+        else:
+            buttons_label = buttons_n
         buttons = []
         for label in buttons_label:
             buttons.append([KeyboardButton(label)])
@@ -455,18 +502,18 @@ class Handlers:
         else:
             reserve_button_name = '1'
 
-        temps = self._reply_buttons('templates')
+        temps = self._reply_buttons(list(RES.TEMPS.keys()))
         temps.append([self._reply_button('2')])
         menu_map = {
             'student':
                 [
                     [self._reply_button('12'), self._reply_button('25')],
-                    [self._reply_button('13')]
+                    [self._reply_button('13'), self._reply_button('30')]
                 ],
             'admin':
                 [
                     [self._reply_button('12'), self._reply_button('25')],
-                    [self._reply_button('24'), self._reply_button('13')]
+                    [self._reply_button('24'), self._reply_button('13'), self._reply_button('30')]
                 ],
             'settings':
                 [
@@ -536,9 +583,6 @@ class Handlers:
                                        text=cfg['text'],
                                        reply_markup=cfg['markup'])
         return next_menu
-
-    async def about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        pass
 
     # ─── CALLBACKS ────────────────────────────────────────────────────────────────
     async def on_signup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -685,10 +729,11 @@ class Handlers:
         profile = self.profile_manager.get(chat_id)
         profile.is_verified = True
         await self.profile_manager.save(chat_id)
+        await self.about(update, context, user_id=chat_id)
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
-                "اطلاعات شما تایید شد لطفا دوباره ربات رو استارت بزن: /start"
+                "لطفا برای مشاهده منو دوباره ربات رو استارت بزن: /start"
             )
         )
         return
@@ -834,11 +879,12 @@ class Handlers:
     async def show_profile(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         msg = update.message
+        keyboard = self.make_menu_inline('edit_profile')  # not implemented yet
         text = (
             "<b>پروفایل من</b>\n"
             f"{self.profile_manager.get(user_id)}"
         )
-        await self._del_res(user_id, msg, text, context, reply_markup=self.make_menu_inline('edit_profile'))
+        await self._del_res(user_id, msg, text, context, reply_markup=None)
         return States.MAIN_MENU_STUDENT
 
     async def show_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -964,6 +1010,7 @@ class Handlers:
         await context.bot.send_message(
             chat_id=user_id,
             text=template,
+            parse_mode="HTML",
             reply_markup=keyboard
         )
         return
@@ -974,13 +1021,15 @@ class Handlers:
         user_data = context.user_data
         temp_msg_id = user_data['temp_msg_id']
         temp_name = user_data['temp']
-        RES.TEMPS[temp_name] = msg.text
+        text = apply_entities(msg.text, list(msg.entities))
+        RES.TEMPS[temp_name] = text
         await RES.update("temps", RES.TEMPS)
         await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
         await context.bot.edit_message_text(
             chat_id=user_id,
             message_id=temp_msg_id,
-            text=msg.text,
+            text=text,
+            parse_mode="HTML",
             reply_markup=self.make_menu_inline('edit_temp', temp_name=temp_name)
         )
         await context.bot.send_message(
@@ -1004,3 +1053,33 @@ class Handlers:
             context,
             reply_markup=self.make_menu_keyboard('settings', user_id=user_id)
         )
+
+    async def about(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
+        user_id = user_id or update.effective_user.id
+        text = (
+            "سلام! 🙂‍↔️\n\n"
+            "خوش اومدی به <b>انجمن</b>! برای استفاده بهتر از امکانات ربات، به بخش‌های زیر نگاهی بنداز:\n\n"
+            "🍽️ <b>یادآور رزرو غذا</b>\n"
+            f"هر چهارشنبه ساعت <code>{RES.NOTIF_TIME}</code> یک پیام دوستانه برات میاد تا یادت نره غذای هفته بعد رو رزرو کنی. "
+            "اگه از سلف استفاده نمی‌کنی، می‌تونی این یادآور رو از <b>تنظیمات</b> خاموش کنی.\n\n"
+            "📝 <b>تولید محتوا</b>\n"
+            "به قسمت <b>تولید محتوا</b> سر بزن، قالب‌های آماده رو ببین و با استفاده از نکات خلاقانه نویسندگی، مطالب جذاب بنویس.\n\n"
+            "👤 <b>ویرایش پروفایل</b>\n"
+            "در بخش <b>پروفایل من</b> می‌تونی حوزه فعالیت و بقیهٔ جزئیات خودت رو به‌روز کنی تا همه‌چیز مطابق میلِ تو باشه.\n\n"
+            "📅 <b>رویدادها</b>\n"
+            "وارد بخش <b>رویدادها</b> شو تا رویدادهای نزدیک یا در حال برگزاری رو دنبال کنی یا توشون ثبت‌نام کنی (به‌زودی فعال می‌شه).\n\n"
+            "🧑‍💼 <b>Admin: </b>"
+            f"<a href='https://t.me/{Config.ADMIN_USERNAME}'>@{Config.ADMIN_USERNAME}</a>\n\n"
+            "👷🏻 <b>Builder of SymBio: </b>"
+            "<a href='https://t.me/sh_id'>@sh_id</a>\n\n"
+            "💻 <b>GitHub link: </b>"
+            "<a href='https://github.com/Celestios/Symbio_telegram_bot.git'>Symbio_telegram_bot</a>\n\n"
+            "منتظر همراهیِ تو هستیم و امیدواریم لحظات خوبی با ربات داشته باشی! 🎉"
+        )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+
