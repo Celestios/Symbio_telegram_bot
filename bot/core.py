@@ -3,6 +3,7 @@ import logging
 from telegram.ext import ApplicationBuilder
 from .construct import Config
 from .handlers import *
+from .handlers import register
 from .utility import json_read
 
 
@@ -18,7 +19,7 @@ class TelegramBot:
 
     def register_handlers(self):
         handler = Handlers(self.profiles)
-        handler.register(self.app)
+        register(self.app)
 
     def run(self) -> None:
         self.app.run_polling()
