@@ -24,7 +24,7 @@ class TelegramBot:
 
     async def post_run_actions(self, app):
         if self.updated:
-            await self.handlers.send_updated_msg(self.app)
+            await self.handlers.send_updated_msg(app)
 
     def run(self) -> None:
         self.app.post_init = self.post_run_actions
