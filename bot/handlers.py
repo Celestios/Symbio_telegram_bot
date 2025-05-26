@@ -12,7 +12,8 @@ from telegram import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
-    MessageEntity
+    MessageEntity,
+    error
 )
 from telegram.ext import (
     ContextTypes,
@@ -222,6 +223,12 @@ class ProfileManager:
             if data.get("is_verified") and data.get("self_reserve") is True
         ]
 
+    def user_ids(self):
+        return [
+            user_id for user_id, data in self.profiles_dict.items()
+            if data.get("is_verified")
+        ]
+
 
 class Handlers:
 
@@ -296,6 +303,16 @@ class Handlers:
         app.add_handler(CallbackQueryHandler(self.on_y_signup, pattern="^y_verify:"))
         app.add_handler(CallbackQueryHandler(self.on_no, pattern="^no$"))
         self.weekly_job(app)
+
+    async def send_updated_msg(self, app):
+        for usr_id in self.profile_manager.user_ids():
+            try:
+                await app.bot.send_message(chat_id=usr_id,
+                                           text=(
+                                               "ربات آپدیت شد، برای استفاده دوباره استارت بزنید:"
+                                               "/start"))
+            except error.BadRequest:
+                print(f"chat {usr_id} not found to send updated message")
 
     # ─── HELPERS ──────────────────────────────────────────────────────────────────
     def recognize_user(self, user_id: int, user_data):
@@ -1082,4 +1099,3 @@ class Handlers:
             parse_mode="HTML",
             disable_web_page_preview=True
         )
-
