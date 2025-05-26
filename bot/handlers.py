@@ -155,9 +155,9 @@ def register(app: _application.Application) -> None:
             ],
             States.SIGN_UP_STEPS: [
                 CallbackQueryHandler(on_signup, pattern=f"^{labels['1']}$"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, sign_up_input),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, signup_get_info_typed),
                 CallbackQueryHandler(sign_up_cancel, pattern="^cancel_signup$"),
-                CallbackQueryHandler(sign_up_button_input, pattern="^signup_info:"),
+                CallbackQueryHandler(signup_get_info_button, pattern="^signup_info:"),
                 CallbackQueryHandler(next_signup, pattern="^next_signup$")
             ],
             States.SETTINGS: [
@@ -188,7 +188,13 @@ def register(app: _application.Application) -> None:
     app.add_handler(CallbackQueryHandler(on_no, pattern="^no$"))
     weekly_job(app)
 
+    content_creation_conv = ConversationHandler(
+        entry_points=['on_content_creation'],
+        states={
 
+        },
+        fallbacks=['back']
+    )
     settings_conv = ConversationHandler(
         entry_points=['on_settings'],
         states={
@@ -197,12 +203,13 @@ def register(app: _application.Application) -> None:
         fallbacks=['back']
     )
     signup_conv = ConversationHandler(
-        entry_points=['signup start'],
+        entry_points=[CallbackQueryHandler(on_signup, pattern=f"^{labels['1']}$")],
         states={
-            Next_step: [],
-            Get_info: []
+            States.NEXT_STEP: [CallbackQueryHandler(next_signup, pattern="^next_signup$")],
+            States.GET_INFO: [MessageHandler(filters.TEXT & ~filters.COMMAND, signup_get_info_typed),
+                              CallbackQueryHandler(signup_get_info_button, pattern="^signup_info:")]
         },
-        fallbacks=[]
+        fallbacks=[CallbackQueryHandler(sign_up_cancel, pattern="^cancel_signup$")]
     )
     common_hs = [
         settings_conv
@@ -219,110 +226,191 @@ def register(app: _application.Application) -> None:
     )
 
 
-async def sign_up_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def weekly_job(app):
+    job_queue = app.job_queue
+    notification_time = dt_time(hour=RES.NOTIF_TIME, minute=0, tzinfo=ZoneInfo("Asia/Tehran"))
+    job_queue.run_daily(
+        callback=weekly_notification,
+        time=notification_time,
+        days=(3,),
+        name="weekly_notification",
+    )
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     msg = update.message
-
-    user_data = context.user_data
-    user_id = update.effective_user.id
-    signup_msg_id = user_data.get('signup_msg_id')
-    profile = user_data['profile']
-    step = user_data['sign_up_step']
-    c_field = RES.STEP_FIELDS[step]
-    is_multi = c_field in RES.MULTI_FIELDS
-
-    # save the text
-    value = msg.text.strip()
-    if is_multi:
-        list_attr = getattr(profile, c_field)
-        if value not in list_attr:
-            list_attr.append(value)
-    else:
-        # cast ints if needed
-        if c_field in ('student_id', 'phone_number'):
-            value = int(value)
-        setattr(profile, c_field, value)
-        user_data['sign_up_step'] += 1
-
     await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
-
-    # render next
-    await _render_signup_step(user_id, signup_msg_id, context)
-
-
-async def handle_signup(user_id, msg, context: ContextTypes.DEFAULT_TYPE) -> None:
-    creds = find_creds(msg.text, CREDS_FA)
-    success = PROFILE_MANAGER.add_profile(user_id, creds)
-    await PROFILE_MANAGER.save(user_id)
-    if success:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=
-            (
-                "خب! اطلاعات شما ثبت شد؛ منتظر تایید ادمین باش!"
-            )
-
-        )
-
-        text = _outline_creds(PROFILE_MANAGER.get(user_id))
-        await context.bot.send_message(
-            chat_id=Config.ADMIN_ID,
-            text=
-
-            (
-                    f"ادمین عزیز یک نفر جدید به جمع ما پیوسته آیا تاییدش می‌کنی؟"
-                    "\n"
-                    "\n"
-                    "\n<b>اطلاعات فرد:</b>"
-                    +
-                    text
-            ),
-            parse_mode="HTML",
-            reply_markup=make_menu_inline("user_verify", user_id=user_id)
-        )
-
-        return
-
-
-async def next_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    # just bump step
-    context.user_data['sign_up_step'] += 1
-    if context.user_data['sign_up_step'] >= 10:
-        await sign_up_end(update, context)
-        return ConversationHandler.END
-    else:
-        await _render_signup_step(query.message.chat_id, query.message.message_id, context)
-        return States.SIGN_UP_STEPS
-
-
-async def sign_up_button_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    msg = query.message
+    return await start(update, context)
+async def change_scale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = context.user_data
     user_id = update.effective_user.id
-    signup_msg_id = user_data['signup_msg_id']
-    profile = user_data['profile']
-    step = user_data['sign_up_step']
-    c_field = RES.STEP_FIELDS[step]
-    is_multi = c_field in RES.MULTI_FIELDS
+    msg = update.message
+    scale_msg = user_data.get('scale_msg')
+    if scale_msg:
+        scale_msg_id = scale_msg.id
+        await context.bot.delete_message(chat_id=user_id, message_id=scale_msg_id)
 
-    # record the choice
-    choice = query.data.split("signup_info:")[1]
-    choice = decode_label(choice, RES.LABEL_CALLBACK_MAP)
-    if is_multi:
-        list_attr = getattr(profile, c_field)
-        if choice not in list_attr:
-            list_attr.append(choice)
-    else:
-        setattr(profile, c_field, choice)
-        user_data['sign_up_step'] += 1
+    profile = PROFILE_MANAGER.get(user_id)
+    if msg.text.strip() == RES.LABELS['15']:
+        profile.adjust_scale(True)
+    elif msg.text.strip() == RES.LABELS['16']:
+        profile.adjust_scale(False)
+    await PROFILE_MANAGER.save(user_id)
+    sent = await _del_res(user_id, msg, str(profile), context)
+    user_data['scale_msg'] = sent
+    return States.SCALE
+async def set_scale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    msg = update.message
+    await _del_res(user_id,
+                   msg,
+                   RES.LABELS['14'],
+                   context,
+                   reply_markup=make_menu_keyboard("scale"))
+    return States.SCALE
+async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
 
-    # re‑render
-    await _render_signup_step(user_id, signup_msg_id, context)
+    msg = update.message
+    sent = await _del_res(user_id,
+                          msg,
+                          RES.LABELS['13'],
+                          context,
+                          reply_markup=make_menu_keyboard("settings", user_id=user_id))
+    context.user_data['settings'] = sent.message_id
+    return States.SETTINGS
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    msg = update.message
+    keyboard = make_menu_inline('edit_profile')  # not implemented yet
+    text = (
+        "<b>پروفایل من</b>\n"
+        f"{PROFILE_MANAGER.get(user_id)}"
+    )
+    await _del_res(user_id, msg, text, context, reply_markup=None)
+    return States.MAIN_MENU_STUDENT
+async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    msg = update.message
+    user_data = context.user_data
+    pass
+async def on_edit_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_type = context.user_data.get('user_type')
+    if user_type == 'admin' or user_type == 'student':
+        # make an “empty” Profile for this user
+        user_id = update.effective_user.id
+        profile = PROFILE_MANAGER.get(user_id)
+        msg_id = query.message.message_id
+        context.user_data['profile'] = profile
+        context.user_data['signup_msg_id'] = msg_id
+
+        await context.bot.edit_message_reply_markup(
+            message_id=msg_id,
+            chat_id=user_id,
+            reply_markup=make_menu_inline('prof_edit')
+        )
+        return
+async def on_edit_temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    context.user_data['temp_msg_id'] = query.message.message_id
+    context.user_data['temp'] = query.data
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="قالب جدید رو بفرست ادمین جان!"
+    )
+    return
+async def on_no(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_reply_markup(reply_markup=None)
+    return
+async def on_y_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_reply_markup(reply_markup=None)
+    _, chat_id = query.data.split(':')
+    profile = PROFILE_MANAGER.get(chat_id)
+    profile.is_verified = True
+    await PROFILE_MANAGER.save(chat_id)
+    await about(update, context, user_id=chat_id)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "لطفا برای مشاهده منو دوباره ربات رو استارت بزن: /start"
+        )
+    )
+    return
+async def on_y_link(update: Update, context: ContextTypes.DEFAULT_TYPE, link: str = None) -> None:
+    query = update.callback_query
+    await query.answer()
+    _, chat_id = query.data.split(':')
+
+    if not link:
+        await query.edit_message_reply_markup(reply_markup=None)
+
+    await context.bot.send_message(
+        chat_id=Config.GROUP_ID,
+        message_thread_id=Config.G_ID_TA,
+        text=link
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="لینک "
+             f"<a href='{link}'>خبر</a>"
+             " تایید شد.",
+        parse_mode="HTML"
+    )
 
 
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data = context.user_data
+    chat_id = update.effective_chat.id
+    recognize_user(chat_id, user_data)
+    user_data['started'] = True
+    p = user_data.get('profile')
+    first_name = getattr(p, 'first_name', '')
+    last_name = getattr(p, 'last_name', '')
+    USER_MAP = {
+        'admin': {
+            'text': "ادمین عزیز خوش اومدی",
+            'markup': make_menu_keyboard("admin"),
+            'return_obj': States.MAIN_MENU_ADMIN
+        },
+        'student': {
+            'text': f"دانشجوی عزیز {first_name} {last_name} خوش آمدید",
+            'markup': make_menu_keyboard("student"),
+            'return_obj': States.MAIN_MENU_STUDENT
+        },
+        'unverified': {
+            'text': "ادمین سرش شلوغه هنوز ثبت نامتو تایید نکرده!!",
+            'markup': None,
+            'return_obj': None
+        },
+        'unregistered': {
+            'text': "دوست گرامی شما هنوز عضو نشده‌‌ای!",
+            'markup': make_menu_inline("unregistered"),
+            'return_obj': States.SIGN_UP_STEPS
+        },
+    }
+    user_type = user_data.get('user_type', 'unregistered')
+    cfg = USER_MAP.get(user_type)
+    next_menu = cfg['return_obj']
+    await context.bot.send_message(chat_id=chat_id,
+                                   text=cfg['text'],
+                                   reply_markup=cfg['markup'])
+    return next_menu
+
+
+
+def _del_dict_items(dict, items_keys:set):
+    for key in items_keys:
+        del dict[key]
+    return
 async def _render_signup_step(chat_id: int, msg_id: int, context):
     profile = context.user_data['profile']
     step = context.user_data['sign_up_step']
@@ -372,169 +460,120 @@ async def _render_signup_step(chat_id: int, msg_id: int, context):
         parse_mode="HTML",
         reply_markup=keyboard
     )
+    return States.NEXT_STEP
 
-
-def weekly_job(app):
-    job_queue = app.job_queue
-    notification_time = dt_time(hour=RES.NOTIF_TIME, minute=0, tzinfo=ZoneInfo("Asia/Tehran"))
-    job_queue.run_daily(
-        callback=weekly_notification,
-        time=notification_time,
-        days=(3,),
-        name="weekly_notification",
+async def on_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    # make an “empty” Profile for this user
+    user_id = update.effective_user.id
+    profile = Profile(
+        first_name="", last_name="", user_id=user_id,
+        study_field="", student_id=0, email="",
+        phone_number=0, degree="", university=""
     )
 
+    context.user_data['profile'] = profile
+    context.user_data['signup_step'] = 0
+    context.user_data['signup_msg_id'] = query.message.message_id
 
-async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    prompt = RES.CREDS_FA[RES.STEP_FIELDS[0]]
+    keyboard = make_menu_inline('cancel_signup')
+    await query.edit_message_text(
+        text=f"\n سلااام! لطفاً <b>{prompt}</b> خودت رو وارد کن",
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+    return States.GET_INFO
+async def next_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_data = context.user_data
+    # just bump step
+    user_data['sign_up_step'] += 1
+    if user_data['sign_up_step'] >= 10:
+        _del_dict_items(user_data, {'profile', 'signup_step', 'signup_msg_id'})
+        await sign_up_end(update, context)
+
+        return END
+    else:
+        await _render_signup_step(query.message.chat_id, query.message.message_id, context)
+        return States.GET_INFO
+async def signup_get_info_typed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
+
+    user_data = context.user_data
+    user_id = update.effective_user.id
+    signup_msg_id = user_data.get('signup_msg_id')
+    profile = user_data.get('profile')
+    step = user_data.get('sign_up_step')
+    c_field = RES.STEP_FIELDS[step]
+    is_multi = c_field in RES.MULTI_FIELDS
+    # save the text
+    value = msg.text.strip()
+
+    if c_field in ('student_id', 'phone_number'):
+        try:
+            value = int(value)
+        except ValueError:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"Invalid input for {c_field},"
+                     f" please enter a number.")
+            return
+
+    if is_multi:
+        list_attr = getattr(profile, c_field)
+        if value not in list_attr:
+            list_attr.append(value)
+    else:
+        setattr(profile, c_field, value)
+        user_data['sign_up_step'] += 1
+
     await context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
-    return await start(update, context)
 
-
-async def change_scale(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data = context.user_data
-    user_id = update.effective_user.id
-    msg = update.message
-    scale_msg = user_data.get('scale_msg')
-    if scale_msg:
-        scale_msg_id = scale_msg.id
-        await context.bot.delete_message(chat_id=user_id, message_id=scale_msg_id)
-
-    profile = PROFILE_MANAGER.get(user_id)
-    if msg.text.strip() == RES.LABELS['15']:
-        profile.adjust_scale(True)
-    elif msg.text.strip() == RES.LABELS['16']:
-        profile.adjust_scale(False)
-    await PROFILE_MANAGER.save(user_id)
-    sent = await _del_res(user_id, msg, str(profile), context)
-    user_data['scale_msg'] = sent
-    return States.SCALE
-
-
-async def set_scale(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    msg = update.message
-    await _del_res(user_id,
-                   msg,
-                   RES.LABELS['14'],
-                   context,
-                   reply_markup=make_menu_keyboard("scale"))
-    return States.SCALE
-
-
-async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    msg = update.message
-    sent = await _del_res(user_id,
-                          msg,
-                          RES.LABELS['13'],
-                          context,
-                          reply_markup=make_menu_keyboard("settings", user_id=user_id))
-    context.user_data['settings'] = sent.message_id
-    return States.SETTINGS
-
-
-async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    msg = update.message
-    keyboard = make_menu_inline('edit_profile')  # not implemented yet
-    text = (
-        "<b>پروفایل من</b>\n"
-        f"{PROFILE_MANAGER.get(user_id)}"
-    )
-    await _del_res(user_id, msg, text, context, reply_markup=None)
-    return States.MAIN_MENU_STUDENT
-
-
-async def unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    msg = update.message
-    user_data = context.user_data
-    pass
-
-
-async def on_edit_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # render next
+    await _render_signup_step(user_id, signup_msg_id, context)
+async def signup_get_info_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_type = context.user_data.get('user_type')
-    if user_type == 'admin' or user_type == 'student':
-        # make an “empty” Profile for this user
-        user_id = update.effective_user.id
-        profile = PROFILE_MANAGER.get(user_id)
-        msg_id = query.message.message_id
-        context.user_data['profile'] = profile
-        context.user_data['signup_msg_id'] = msg_id
+    msg = query.message
+    user_data = context.user_data
+    user_id = update.effective_user.id
+    signup_msg_id = user_data['signup_msg_id']
+    profile = user_data['profile']
+    step = user_data['sign_up_step']
+    c_field = RES.STEP_FIELDS[step]
+    is_multi = c_field in RES.MULTI_FIELDS
 
-        await context.bot.edit_message_reply_markup(
-            message_id=msg_id,
-            chat_id=user_id,
-            reply_markup=make_menu_inline('prof_edit')
-        )
-        return
+    # record the choice
+    choice = query.data.split("signup_info:")[1]
+    choice = decode_label(choice, RES.LABEL_CALLBACK_MAP)
+    if is_multi:
+        list_attr = getattr(profile, c_field)
+        if choice not in list_attr:
+            list_attr.append(choice)
+    else:
+        setattr(profile, c_field, choice)
+        user_data['sign_up_step'] += 1
 
-
-async def on_edit_temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # re‑render
+    await _render_signup_step(user_id, signup_msg_id, context)
+async def sign_up_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_data = context.user_data
     user_id = update.effective_user.id
-    context.user_data['temp_msg_id'] = query.message.message_id
-    context.user_data['temp'] = query.data
-    await context.bot.send_message(
+
+    await context.bot.edit_message_text(
         chat_id=user_id,
-        text="قالب جدید رو بفرست ادمین جان!"
-    )
-    return
-
-
-async def on_no(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    return
-
-
-async def on_y_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
-    _, chat_id = query.data.split(':')
-    profile = PROFILE_MANAGER.get(chat_id)
-    profile.is_verified = True
-    await PROFILE_MANAGER.save(chat_id)
-    await about(update, context, user_id=chat_id)
-    await context.bot.send_message(
-        chat_id=chat_id,
+        message_id=user_data['signup_msg_id'],
         text=(
-            "لطفا برای مشاهده منو دوباره ربات رو استارت بزن: /start"
-        )
+            "ثبت نام شما کنسل شد"
+        ),
+        reply_markup=make_menu_inline("unregistered")
     )
-    return
-
-
-async def on_y_link(update: Update, context: ContextTypes.DEFAULT_TYPE, link: str = None) -> None:
-    query = update.callback_query
-    await query.answer()
-    _, chat_id = query.data.split(':')
-
-    if not link:
-        await query.edit_message_reply_markup(reply_markup=None)
-
-    await context.bot.send_message(
-        chat_id=Config.GROUP_ID,
-        message_thread_id=Config.G_ID_TA,
-        text=link
-    )
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="لینک "
-             f"<a href='{link}'>خبر</a>"
-             " تایید شد.",
-        parse_mode="HTML"
-    )
-
-
+    return States.MAIN_MENU_STUDENT
 async def sign_up_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_data = context.user_data
@@ -565,92 +604,6 @@ async def sign_up_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
 
 
-async def sign_up_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_data = context.user_data
-    user_id = update.effective_user.id
-
-    await context.bot.edit_message_text(
-        chat_id=user_id,
-        message_id=user_data['signup_msg_id'],
-        text=(
-            "ثبت نام شما کنسل شد"
-        ),
-        reply_markup=make_menu_inline("unregistered")
-    )
-    return States.MAIN_MENU_STUDENT
-
-
-async def on_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_type = context.user_data.get('user_type')
-    if user_type == 'unregistered':
-        # make an “empty” Profile for this user
-        user_id = update.effective_user.id
-        profile = Profile(
-            first_name="", last_name="", user_id=user_id,
-            study_field="", student_id=0, email="",
-            phone_number=0, degree="", university=""
-        )
-
-        context.user_data['profile'] = profile
-        context.user_data['sign_up_step'] = 0
-        context.user_data['signup_msg_id'] = query.message.message_id
-
-        prompt = RES.CREDS_FA[RES.STEP_FIELDS[0]]
-        keyboard = make_menu_inline('cancel_signup')
-        msg = await context.bot.edit_message_text(
-            chat_id=user_id,
-            message_id=query.message.message_id,
-            text=f"\n سلااام! لطفاً <b>{prompt}</b> خودت رو وارد کن",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-        return States.SIGN_UP_STEPS
-
-    else:
-        return
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data = context.user_data
-    chat_id = update.effective_chat.id
-    recognize_user(chat_id, user_data)
-    user_data['started'] = True
-    p = user_data.get('profile')
-    first_name = getattr(p, 'first_name', '')
-    last_name = getattr(p, 'last_name', '')
-    USER_MAP = {
-        'admin': {
-            'text': "ادمین عزیز خوش اومدی",
-            'markup': make_menu_keyboard("admin"),
-            'return_obj': States.MAIN_MENU_ADMIN
-        },
-        'student': {
-            'text': f"دانشجوی عزیز {first_name} {last_name} خوش آمدید",
-            'markup': make_menu_keyboard("student"),
-            'return_obj': States.MAIN_MENU_STUDENT
-        },
-        'unverified': {
-            'text': "ادمین سرش شلوغه هنوز ثبت نامتو تایید نکرده!!",
-            'markup': None,
-            'return_obj': None
-        },
-        'unregistered': {
-            'text': "دوست گرامی شما هنوز عضو نشده‌‌ای!",
-            'markup': make_menu_inline("unregistered"),
-            'return_obj': States.SIGN_UP_STEPS
-        },
-    }
-    user_type = user_data.get('user_type', 'unregistered')
-    cfg = USER_MAP.get(user_type)
-    next_menu = cfg['return_obj']
-    await context.bot.send_message(chat_id=chat_id,
-                                   text=cfg['text'],
-                                   reply_markup=cfg['markup'])
-    return next_menu
 
 
 async def weekly_notification(context: ContextTypes.DEFAULT_TYPE) -> None:

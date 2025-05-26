@@ -49,4 +49,6 @@ class States(Enum):
     SIGN_UP_STEPS = auto()
     EDIT_PROFILE = auto()
     TEMPLATES = auto()
+    # signup
+    NEXT_STEP = auto()
 
