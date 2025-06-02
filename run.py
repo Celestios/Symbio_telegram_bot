@@ -1,6 +1,6 @@
-from bot.core import TelegramBot
 import argparse
 import logging
+from bot.core import TelegramBot
 
 
 def main():
