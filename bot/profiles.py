@@ -2,6 +2,8 @@ import pandas as pd
 from .utility import async_json_key_update
 from .construct import RES
 from dataclasses import dataclass, asdict, field
+from typing import List, Dict, Any, Optional
+import copy
 
 
 @dataclass
@@ -15,11 +17,12 @@ class Profile:
     phone_number: int
     degree: str
     university: str
+    is_signed_up: bool = False
     is_verified: bool = False
     skills: List[str] = field(default_factory=list)
     interests: List[str] = field(default_factory=list)
     scale: int = 38
-    self_reserve: bool = False
+    self_reserve: bool = True
 
     def __str__(self) -> str:
         sections = [
@@ -44,14 +47,25 @@ class Profile:
         body = "\n".join(format_line(label, val) for label, val in sections)
         return f"{header_line}\n{top_border}\n{body}\n{bottom_border}"
 
+    def is_complete(self) -> bool:
+        for field_name, empty_value in required_fields_check.items():
+            current_value = getattr(self, field_name)
+            if current_value == empty_value:
+                return False
+        return True
+
+
     def get_creds(self):
-        return {k: self.__dict__[k] for k in h if CREDS_FA in self.__dict__}
+        return {k: self.__dict__[k] for k in RES.CREDS_FA if k in self.__dict__}
 
     def adjust_scale(self, p):
+        min_scale = 5
+        max_scale = 50
+
         if p:
-            self.scale += 2
+            self.scale = min(self.scale + 1, max_scale)
         else:
-            self.scale -= 2
+            self.scale = max(self.scale - 1, min_scale)
 
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
@@ -113,16 +127,35 @@ class ProfileManager:
             if not isinstance(val, expected):
                 raise TypeError(f"Field '{field_name}' must be {expected.__name__}, got {type(val).__name__}")
 
-    def add_profile(self, user_id: int, creds: Dict[str, Any] | Profile) -> bool:
+    def add_profile(self,
+                    user_id: int,
+                    creds: Dict[str, Any] | Profile | None = None,
+                    new: bool = False
+                    ) -> bool | Profile:
         try:
+            if new:
+                if creds is not None:
+                    raise ValueError("Do not provide credentials when using new=True.")
+                empty_creds = RES.REQUIRED_FIELDS.copy()
+                empty_creds["user_id"] = user_id
+                self.profiles[str(user_id)] = Profile(**empty_creds)
+                return self.profiles[str(user_id)]
+
+            if creds is None:
+                raise ValueError("Credentials required unless new=True.")
+
             if isinstance(creds, dict):
                 self.check_credentials(creds)
                 self.profiles[str(user_id)] = Profile(user_id=user_id, **creds)
+
             elif isinstance(creds, Profile):
+                self.check_credentials(creds.__dict__)
                 self.profiles[str(user_id)] = creds
-            return True
+
+            return self.profiles[str(user_id)]
+
         except Exception as e:
-            print(e)
+            print(f"Failed to add profile for user {user_id}: {e}")
             return False
 
     def delete_profile(self, user_id: int) -> bool:

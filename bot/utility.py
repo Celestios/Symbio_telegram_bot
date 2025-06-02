@@ -78,6 +78,7 @@ async def async_json_key_update(path, key, value=None):
         # Update the key-value pair
         data[key] = value
         await async_json_write(path, data)
+        return None
     else:
         # Return the value associated with the key
         return data.get(key)  # Safer than directly accessing `data[key]`
@@ -112,21 +113,3 @@ def find_link(text: str) -> str|None:
     if match:
         return match.group()
     return None
-
-
-def encode_label(label: str, label_map) -> str:
-    if label in label_map:
-        return label_map[label]
-    next_id = len(label_map)
-    encoded = f"__enc_{next_id}"
-    label_map[label] = encoded
-    return encoded
-
-
-def decode_label(label: str, label_map) -> str:
-    if not label.startswith("__enc_"):
-        return label
-    for label_n, code in label_map.items():
-        if code == label:
-            return label_n
-    raise ValueError(f"Unknown encoded callback data: {encoded}")
