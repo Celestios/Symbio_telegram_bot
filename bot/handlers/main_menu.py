@@ -35,8 +35,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    text=text,
                                    reply_markup=get_user_markup(user_type))
     state = get_user_state(user_type)
-    push_menu(context, state)
-    return state
+    return push_menu(context, state)
 
 
 def prepare_borders(scale: int, title: str = '') -> dict:

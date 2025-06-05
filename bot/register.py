@@ -18,14 +18,19 @@ from bot.construct import (
 from .handlers import *
 
 
+async def restart_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ends the current conversation and restarts the main one."""
+    await start(update, context)
+    return ConversationHandler.END
+
+
 def register(app: _application.Application) -> None:
     labels = RES.LABELS
     main_filter = filters.TEXT & ~filters.COMMAND & ~filters.Regex(f"^{re.escape(labels['2'])}$")
     combined_keys = list(RES.TEMPS.keys()) + list(RES.TIPS.keys())
     send_content_pattern = re.compile(f"^({'|'.join(map(re.escape, combined_keys))})$")
-    show_creds_options_pattern = f"^({re.escape(labels['2'])}|cred_edit_info:.+)$"
 
-
+    restart_handler = CommandHandler('start', restart_menu)
     content_creation_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(f"^{labels['25']}$"), on_content_creation)],
         states={
@@ -44,7 +49,8 @@ def register(app: _application.Application) -> None:
             ]
 
         },
-        fallbacks=[MessageHandler(filters.Regex(labels['2']), go_back_content)],
+        fallbacks=[MessageHandler(filters.Regex(labels['2']), go_back_content),
+                   restart_handler],
         map_to_parent={
             States.ADMIN: States.ADMIN,
             States.STUDENT: States.STUDENT,
@@ -62,7 +68,8 @@ def register(app: _application.Application) -> None:
                 MessageHandler(filters.Regex(f"^{labels['15']}|{labels['16']}$"), change_scale)
             ]
         },
-        fallbacks=[MessageHandler(filters.Regex(labels['2']), go_back_setting)],
+        fallbacks=[MessageHandler(filters.Regex(labels['2']), go_back_setting),
+                   restart_handler],
         map_to_parent={
             States.ADMIN: States.ADMIN,
             States.STUDENT: States.STUDENT,
@@ -76,19 +83,16 @@ def register(app: _application.Application) -> None:
                         states={
                             States.CHOSEN_CRED: [
                                 CallbackQueryHandler(on_cred_edit, pattern="^edit_profile_info:"),
-                                CallbackQueryHandler(back_to_profile, pattern=f"^{labels['4']}$")
+                                CallbackQueryHandler(cancel_profile, pattern=f"^{labels['3']}$"),
+                                CallbackQueryHandler(end_signup, pattern=f"^{labels['31']}$")
                             ],
                             States.GET_INFO: [
-                                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_profile_get_info_typed),
-                                CallbackQueryHandler(edit_profile_get_info_button, pattern=show_creds_options_pattern),
-                                # CallbackQueryHandler(back_to_menu, pattern=f"^{labels['4']}$")
-                            ],
-                            States.FINALIZE: [
-                                CallbackQueryHandler(end_signup, pattern=labels['31'])
+                                MessageHandler(main_filter, edit_profile_get_info_typed),
+                                CallbackQueryHandler(edit_profile_get_info_button, pattern="^cred_edit_info:"),
                             ]
-
                         },
-                        fallbacks=[],
+                        fallbacks=[CallbackQueryHandler(go_back_profile, pattern=f"^{labels['2']}$"),
+                                   restart_handler],
                         map_to_parent={
                             States.ADMIN: States.ADMIN,
                             States.STUDENT: States.STUDENT,
@@ -104,6 +108,7 @@ def register(app: _application.Application) -> None:
     main_conv = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
+            States.START: [CommandHandler('start', start)],
             States.ADMIN: common_hs + [
                 MessageHandler(filters.Regex(f"^{labels['24']}$"), export_profiles)
             ],
@@ -112,10 +117,12 @@ def register(app: _application.Application) -> None:
 
         },
         fallbacks=[
+            CommandHandler('start', start)
         ]
     )
     app.add_handler(main_conv)
     weekly_job(app)
+
 
 
 

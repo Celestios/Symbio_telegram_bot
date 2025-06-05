@@ -86,6 +86,11 @@ def get_user_state(role):
 
 
 def push_menu(context: ContextTypes.DEFAULT_TYPE, state):
+    reset_states = {States.ADMIN, States.STUDENT, States.UNREGISTERED}
+    if state in reset_states:
+        context.user_data['menu_stack'] = [state]
+        return state
+
     stack = context.user_data.setdefault('menu_stack', [])
     if not stack or stack[-1] != state:
         stack.append(state)

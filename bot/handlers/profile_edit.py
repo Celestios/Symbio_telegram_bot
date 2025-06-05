@@ -11,7 +11,9 @@ from ._utils import (
     _del_res,
     _outline_creds,
     decode_label,
-    get_user_state
+    get_user_state,
+    push_menu,
+    pop_menu
 )
 from ..construct import (
     States,
@@ -38,6 +40,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE, activ
             reply_markup=keyboard,
             parse_mode="HTML"
         )
+    return get_user_state(context.user_data.get('user_type'))
 
 
 async def _render_edit_profile(context: ContextTypes.DEFAULT_TYPE):
@@ -72,7 +75,7 @@ async def on_edit_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     context.user_data['prof_edit_msg'] = query.message
     await _render_edit_profile(context)
-    return States.CHOSEN_CRED
+    return push_menu(context, States.CHOSEN_CRED)
 
 
 async def _render_cred_edit(context: ContextTypes.DEFAULT_TYPE):
@@ -118,7 +121,7 @@ async def on_cred_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['c_field'] = c_field
     await _render_cred_edit(context)
 
-    return States.GET_INFO
+    return push_menu(context, States.GET_INFO)
 
 
 async def _update_profile_field(context, user_id, c_field, value, from_message=False, message=None):
@@ -169,13 +172,19 @@ async def edit_profile_get_info_button(update: Update, context: ContextTypes.DEF
     return await _update_profile_field(context, user_id, c_field, value)
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
+async def cancel_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     for var in ['prof_edit_msg', 'c_field', ]:
-        del context.user_data[var]
+        try:
+            del context.user_data[var]
+        except KeyError:
+            pass
     user_id = update.effective_user.id
     profile_manager = context.bot_data.get('profile_manager')
     profile_manager.delete_profile(user_id)
+    await profile_manager.save(user_id)
+    await query.edit_message_text(text="ثبت نام شما لغو شد", reply_markup=make_menu_inline('unregistered'))
     return States.UNREGISTERED
 
 
@@ -200,11 +209,16 @@ async def end_signup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return None
 
 
-async def back_to_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def go_back_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await show_profile(update, context, active=False)
-    return get_user_state(context.user_data.get('user_type'))
+    prev_state = pop_menu(context)
+    if prev_state == States.CHOSEN_CRED:
+        return await on_edit_profile(update, context)
+    elif prev_state == States.GET_INFO:
+        return await on_cred_edit(update, context)
+    else:
+        return await show_profile(update, context, active=False)
 
 
 # async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -266,6 +280,6 @@ __all__ = [
     'edit_profile_get_info_typed',
     'edit_profile_get_info_button',
     'end_signup',
-    'cancel',
-    'back_to_profile'
+    'cancel_profile',
+    'go_back_profile'
 ]

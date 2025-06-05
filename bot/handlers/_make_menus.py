@@ -117,7 +117,7 @@ def make_menu_inline(menu_types, user_id=None):
         ),
         'profile_edit_general_options':
             [
-                [_button('2', labels['4'])]
+                [_button('2', labels['2'])]
             ]
     }
     buttons = []
@@ -143,7 +143,7 @@ def _reply_button(label):
 
 def _buttons(
         labels_name: Union[str, List[str]],
-        base_tag: str,
+        base_tag: str = '',
         columns: int = 1,
         custom_callback_data: Optional[List[str]] = None
 ) -> List[List[InlineKeyboardButton]]:
@@ -157,8 +157,10 @@ def _buttons(
         else:
             raw_cb = f"{base_tag}:{label}"
             cb_value = encode_label(label, RES.LABEL_CALLBACK_MAP) if len(raw_cb.encode('utf-8')) > 63 else label
-
-        callback_data = f"{base_tag}:{cb_value}"
+        if base_tag:
+            callback_data = f"{base_tag}:{cb_value}"
+        else:
+            callback_data = cb_value
         row.append(InlineKeyboardButton(label, callback_data=callback_data))
 
         if 0 < columns == len(row):

@@ -47,6 +47,7 @@ class RES:
 
 
 class States(Enum):
+    START = auto()
     MAIN_MENU_ADMIN = auto()
     MAIN_MENU_STUDENT = auto()
     SETTINGS = auto()

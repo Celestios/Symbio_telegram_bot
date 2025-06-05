@@ -1,5 +1,5 @@
 import pandas as pd
-from .utility import async_json_key_update
+from .utility import async_json_key_update, async_json_key_delete
 from .construct import RES
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Optional
@@ -164,9 +164,13 @@ class ProfileManager:
     async def save(self, user_id: str | int) -> None:
         if isinstance(user_id, int):
             user_id = str(user_id)
+
         profile = self.get(user_id)
-        data = asdict(profile)
-        await async_json_key_update(RES.DATABASE_PATH, user_id, data)
+        if profile:
+            data = asdict(profile)
+            await async_json_key_update(RES.DATABASE_PATH, user_id, data)
+        else:
+            await async_json_key_delete(RES.DATABASE_PATH, user_id)
 
     def export(self):
         data = self.profiles_dict

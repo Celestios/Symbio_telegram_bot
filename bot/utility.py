@@ -53,6 +53,7 @@ def json_key_update(path, key, value=None):
     if value is not None:
         data[key] = value
         json_write(path, data)
+        return None
     else:
         return data[key]
 
@@ -82,6 +83,18 @@ async def async_json_key_update(path, key, value=None):
     else:
         # Return the value associated with the key
         return data.get(key)  # Safer than directly accessing `data[key]`
+
+
+async def async_json_key_delete(path, key):
+    if not os.path.exists(path):
+        return
+
+    data = await async_json_read(path)
+
+    if key in data:
+        del data[key]
+        await async_json_write(path, data)
+
 
 
 def find_creds(text: str, creds_fa) -> dict | None:
